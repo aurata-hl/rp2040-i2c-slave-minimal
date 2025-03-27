@@ -1,4 +1,5 @@
-### i2cSlave.py
+# SPDX-License-Identifier: MIT
+
 from machine import mem32
 from RP2040_I2C_Registers import*
 

@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: MIT
+
 I2C_OFFSET = {
     "I2C_IC_CON":            0x00000000,
     "I2C_IC_TAR":            0x00000004,
