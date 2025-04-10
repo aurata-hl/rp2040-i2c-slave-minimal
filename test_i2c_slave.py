@@ -19,8 +19,11 @@ def test_slave(addr, bus=0, sda=0, scl=1):
         while True:
             state = s_i2c.handle_event()
 
+            if state is None:
+                continue
+
             if state == s_i2c.I2CStateMachine.I2C_START:
-                pass
+                continue
 
             if state == s_i2c.I2CStateMachine.I2C_RECEIVE:
                 if currentTransaction.address == 0x00:
