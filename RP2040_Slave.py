@@ -1,20 +1,22 @@
 # SPDX-License-Identifier: MIT
 
 from machine import mem32
+from micropython import const
 from RP2040_I2C_Registers import *
+
+# I2C register addresses.
+_I2C0_BASE = const(0x40044000)
+_I2C1_BASE = const(0x40048000)
+_IO_BANK0_BASE = const(0x40014000)
+
+# Atomic Register Access
+MEM_RW = const(0x0000)  # Normal read/write access
+MEM_XOR = const(0x1000)  # XOR on write
+MEM_SET = const(0x2000)  # Bitmask set on write
+MEM_CLR = const(0x3000)  # Bitmask clear on write
 
 
 class i2c_slave:
-
-    I2C0_BASE = 0x40044000
-    I2C1_BASE = 0x40048000
-    IO_BANK0_BASE = 0x40014000
-
-    # Atomic Register Access
-    mem_rw = 0x0000     # Normal read/write access
-    mem_xor = 0x1000    # XOR on write
-    mem_set = 0x2000    # Bitmask set on write
-    mem_clr = 0x3000    # Bitmask clear on write
 
     def get_Bits_Mask(self, bits, register):
         """ This function return the bit mask based on bit name """
@@ -23,37 +25,34 @@ class i2c_slave:
             [key for key, value in register.items() if value in bits_to_clear])
         return bit_mask
 
-    def RP2040_Write_32b_i2c_Reg(self, register, data, atr=0):
+    def RP2040_Write_32b_i2c_Reg(self, register, data, atr=MEM_RW):
         """ Write RP2040 I2C 32bits register """
         # < Base Addr > | < Atomic Register Access > | < Register >
-        mem32[self.i2c_base | atr | register] = data
+        mem32[self._i2c_base | atr | register] = data
 
     def RP2040_Set_32b_i2c_Reg(self, register, data):
         """ Set bits in RP2040 I2C 32bits register """
         # < Base Addr > | 0x2000 | < Register >
-        self.RP2040_Write_32b_i2c_Reg(register, data, atr=self.mem_set)
+        self.RP2040_Write_32b_i2c_Reg(register, data, atr=MEM_SET)
 
     def RP2040_Clear_32b_i2c_Reg(self, register, data):
         """ Clear bits in RP2040 I2C 32bits register """
         # < Base Addr > | 0x3000 | < Register >
-        self.RP2040_Write_32b_i2c_Reg(register, data, atr=self.mem_clr)
+        self.RP2040_Write_32b_i2c_Reg(register, data, atr=MEM_CLR)
 
     def RP2040_Read_32b_i2c_Reg(self, offset):
         """ Read RP2040 I2C 32bits register """
-        return mem32[self.i2c_base | offset]
+        return mem32[self._i2c_base | offset]
 
     def RP2040_Get_32b_i2c_Bits(self, offset, bit_mask):
-        return mem32[self.i2c_base | offset] & bit_mask
+        return mem32[self._i2c_base | offset] & bit_mask
 
     def __init__(self, i2cID=0, sda=0, scl=1, slaveAddress=0x44):
         self.scl = scl
         self.sda = sda
         self.slaveAddress = slaveAddress
         self.i2c_ID = i2cID
-        if self.i2c_ID == 0:
-            self.i2c_base = self.I2C0_BASE
-        else:
-            self.i2c_base = self.I2C1_BASE
+        self._i2c_base = _I2C0_BASE if self.i2c_ID == 0 else _I2C1_BASE
 
         """
           I2C Slave Mode Intructions
@@ -102,14 +101,17 @@ class i2c_slave:
             self.get_Bits_Mask("IC_ENABLE", I2C_IC_ENABLE))
 
         # Reset GPIO0 function
-        mem32[self.IO_BANK0_BASE | self.mem_clr | (4 + 8 * self.sda)] = 0x1f
+        sda_base = 4 + 8 * self.sda
+        mem32[_IO_BANK0_BASE | MEM_CLR | sda_base] = 0x1f
         # Set GPIO0 as IC0_SDA function
-        mem32[self.IO_BANK0_BASE | self.mem_set | (4 + 8 * self.sda)] = 0x03
+        mem32[_IO_BANK0_BASE | MEM_SET | sda_base] = 0x03
 
         # Reset GPIO1 function
-        mem32[self.IO_BANK0_BASE | self.mem_clr | (4 + 8 * self.scl)] = 0x1f
+        scl_base = 4 + 8 * self.scl
+        mem32[_IO_BANK0_BASE | MEM_CLR | scl_base] = 0x1f
         # Set GPIO1 as IC0_SCL function
-        mem32[self.IO_BANK0_BASE | self.mem_set | (4 + 8 * self.scl)] = 3
+        mem32[_IO_BANK0_BASE | MEM_SET | scl_base] = 0x03
+
         print(
             ('established I2C slave on ID={}; SDA={}; SCL={} ' +
              'at 0x{:02X}').format(i2cID, sda, scl, self.slaveAddress))
@@ -192,10 +194,7 @@ class i2c_slave:
         status = self.RP2040_Get_32b_i2c_Bits(
             I2C_OFFSET["I2C_IC_RAW_INTR_STAT"],
             self.get_Bits_Mask("RD_REQ", I2C_IC_RAW_INTR_STAT))
-
-        if status:
-            return True
-        return False
+        return bool(status)
 
     """
     def is_Master_Req_Seq_Write(self):
