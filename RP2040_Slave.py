@@ -52,13 +52,6 @@ MEM_CLR = const(0x3000)  # Bitmask clear on write
 
 class i2c_slave:
 
-    def get_Bits_Mask(self, bits, register):
-        """ This function return the bit mask based on bit name """
-        bits_to_clear = bits
-        bit_mask = sum(
-            [key for key, value in register.items() if value in bits_to_clear])
-        return bit_mask
-
     def RP2040_Write_32b_i2c_Reg(self, register, data, atr=MEM_RW):
         """ Write RP2040 I2C 32bits register """
         # < Base Addr > | < Atomic Register Access > | < Register >
@@ -213,29 +206,6 @@ class i2c_slave:
         status = self.RP2040_Get_32b_i2c_Bits(
             _I2C_IC_RAW_INTR_STAT, _I2C_IC_RAW_INTR_STAT__RD_REQ)
         return bool(status)
-
-    """
-    def is_Master_Req_Seq_Write(self):
-        # Return true if I2C Master is requesting a sequential data writing
-        #
-        # Check whether is FIRST_DATA_BYTE bit is active in IC_DATA_CMD.
-        first_data_byte_stat = self.RP2040_Get_32b_i2c_Bits(
-            _I2C_IC_DATA_CMD, _I2C_IC_DATA_CMD__FIRST_DATA_BYTE)
-
-        # Check whether is STOP_DET_IFADDRESSED bit is active in IC_CON.
-        stop_stat = self.RP2040_Get_32b_i2c_Bits(
-            _I2C_IC_CON, _I2C_IC_CON__STOP_DET_IFADDRESSED)
-
-        if (stop_stat):
-            # Clear stop bit int
-            self.RP2040_Read_32b_i2c_Reg(_I2C_IC_CLR_STOP_DET)
-
-        # Master sequential write true if FIRST_DATA_BYTE bit is active
-        # and no stop condition detected.
-        if first_data_byte_stat and not stop_stat:
-            return True
-        return False
-    """
 
     def Slave_Write_Data(self, data):
         """ Write 8bits of data at destination of I2C Master """
