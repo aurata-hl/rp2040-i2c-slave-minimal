@@ -50,27 +50,52 @@ MEM_SET = const(0x2000)  # Bitmask set on write
 MEM_CLR = const(0x3000)  # Bitmask clear on write
 
 
+# The register read/write functions should be simplified as much as possible,
+# since these functions are invoked most frequently, and hence contribute
+# a considerable amount of overhead.
+# We save 1 argument and convert 1 attribute access to a compile-time
+# constant by referring these callables rather than using a common
+# member method.
+#
+# _reg_write_xxx: Write, set or clear RP2040 I2C 32bits register `register`.
+# The "atomic read", `atr`, should be one of the predefined constants,
+# i.e., `MEM_RW`, `MEM_SET`, `MEM_CLR` or `MEM_XOR`.
+#
+# _reg_read_xxx: Read the contents of the 32-bit register at the
+# specified `offset`.
+
+def _reg_write_i2c0(register, data, atr=MEM_RW):
+    mem32[_I2C0_BASE | atr | register] = data
+
+
+def _reg_write_i2c1(register, data, atr=MEM_RW):
+    mem32[_I2C1_BASE | atr | register] = data
+
+
+def _reg_read_i2c0(offset):
+    return mem32[_I2C0_BASE | offset]
+
+
+def _reg_read_i2c1(offset):
+    return mem32[_I2C1_BASE | offset]
+
+
 class i2c_slave:
-
-    def RP2040_Write_32b_i2c_Reg(self, register, data, atr=MEM_RW):
-        """
-        Write, set or clear RP2040 I2C 32bits register `register`.
-        The "atomic read", `atr`, should be one of the predefined constants,
-        i.e., `MEM_RW`, `MEM_SET`, `MEM_CLR` or `MEM_XOR`.
-        """
-        # < Base Addr > | < Atomic Register Access > | < Register >
-        mem32[self._i2c_base | atr | register] = data
-
-    def RP2040_Read_32b_i2c_Reg(self, offset):
-        """ Read RP2040 I2C 32bits register """
-        return mem32[self._i2c_base | offset]
 
     def __init__(self, i2cID=0, sda=0, scl=1, slaveAddress=0x44):
         self.scl = scl
         self.sda = sda
         self.slaveAddress = slaveAddress
+
+        # Use pre-defined callables to reduce the number of arguments passed
+        # per invocation to the register read and write functions
         self.i2c_ID = i2cID
-        self._i2c_base = _I2C0_BASE if self.i2c_ID == 0 else _I2C1_BASE
+        if self.i2c_ID == 0:
+            self.RP2040_Write_32b_i2c_Reg = _reg_write_i2c0
+            self.RP2040_Read_32b_i2c_Reg = _reg_read_i2c0
+        else:
+            self.RP2040_Write_32b_i2c_Reg = _reg_write_i2c1
+            self.RP2040_Read_32b_i2c_Reg = _reg_read_i2c1
 
         """
           I2C Slave Mode Intructions
