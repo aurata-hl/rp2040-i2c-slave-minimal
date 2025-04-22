@@ -53,26 +53,17 @@ MEM_CLR = const(0x3000)  # Bitmask clear on write
 class i2c_slave:
 
     def RP2040_Write_32b_i2c_Reg(self, register, data, atr=MEM_RW):
-        """ Write RP2040 I2C 32bits register """
+        """
+        Write, set or clear RP2040 I2C 32bits register `register`.
+        The "atomic read", `atr`, should be one of the predefined constants,
+        i.e., `MEM_RW`, `MEM_SET`, `MEM_CLR` or `MEM_XOR`.
+        """
         # < Base Addr > | < Atomic Register Access > | < Register >
         mem32[self._i2c_base | atr | register] = data
-
-    def RP2040_Set_32b_i2c_Reg(self, register, data):
-        """ Set bits in RP2040 I2C 32bits register """
-        # < Base Addr > | 0x2000 | < Register >
-        self.RP2040_Write_32b_i2c_Reg(register, data, atr=MEM_SET)
-
-    def RP2040_Clear_32b_i2c_Reg(self, register, data):
-        """ Clear bits in RP2040 I2C 32bits register """
-        # < Base Addr > | 0x3000 | < Register >
-        self.RP2040_Write_32b_i2c_Reg(register, data, atr=MEM_CLR)
 
     def RP2040_Read_32b_i2c_Reg(self, offset):
         """ Read RP2040 I2C 32bits register """
         return mem32[self._i2c_base | offset]
-
-    def RP2040_Get_32b_i2c_Bits(self, offset, bit_mask):
-        return mem32[self._i2c_base | offset] & bit_mask
 
     def __init__(self, i2cID=0, sda=0, scl=1, slaveAddress=0x44):
         self.scl = scl
@@ -87,16 +78,16 @@ class i2c_slave:
         """
 
         # 1. Disable the DW_apb_i2c by writing a ‘0’ to IC_ENABLE.ENABLE
-        self.RP2040_Clear_32b_i2c_Reg(
-            _I2C_IC_ENABLE, _I2C_IC_ENABLE__ENABLE)
+        self.RP2040_Write_32b_i2c_Reg(
+            _I2C_IC_ENABLE, _I2C_IC_ENABLE__ENABLE, MEM_CLR)
 
         # 2. Write to the IC_SAR register (bits 9:0) to set the slave address.
         # This is the address to which the DW_apb_i2c responds.
-        self.RP2040_Clear_32b_i2c_Reg(
-            _I2C_IC_SAR, _I2C_IC_SAR__IC_SAR)
+        self.RP2040_Write_32b_i2c_Reg(
+            _I2C_IC_SAR, _I2C_IC_SAR__IC_SAR, MEM_CLR)
 
-        self.RP2040_Set_32b_i2c_Reg(
-            _I2C_IC_SAR, self.slaveAddress & _I2C_IC_SAR__IC_SAR)
+        self.RP2040_Write_32b_i2c_Reg(
+            _I2C_IC_SAR, self.slaveAddress & _I2C_IC_SAR__IC_SAR, MEM_SET)
 
         # 3. Write to the IC_CON register to specify which type of addressing
         # is supported (7-bit or 10-bit by setting bit 3).
@@ -105,20 +96,20 @@ class i2c_slave:
         # (MASTER_MODE).
 
         # Disable Master mode
-        self.RP2040_Clear_32b_i2c_Reg(
-            _I2C_IC_CON, _I2C_IC_CON__MASTER_MODE)
+        self.RP2040_Write_32b_i2c_Reg(
+            _I2C_IC_CON, _I2C_IC_CON__MASTER_MODE, MEM_CLR)
 
         # Enable slave mode
-        self.RP2040_Clear_32b_i2c_Reg(
-            _I2C_IC_CON, _I2C_IC_CON__IC_SLAVE_DISABLE)
+        self.RP2040_Write_32b_i2c_Reg(
+            _I2C_IC_CON, _I2C_IC_CON__IC_SLAVE_DISABLE, MEM_CLR)
 
         # Enable clock strech
-        self.RP2040_Set_32b_i2c_Reg(
-            _I2C_IC_CON, _I2C_IC_CON__RX_FIFO_FULL_HLD_CTRL)
+        self.RP2040_Write_32b_i2c_Reg(
+            _I2C_IC_CON, _I2C_IC_CON__RX_FIFO_FULL_HLD_CTRL, MEM_SET)
 
         # 4. Enable the DW_apb_i2c by writing a ‘1’ to IC_ENABLE.ENABLE.
-        self.RP2040_Set_32b_i2c_Reg(
-            _I2C_IC_ENABLE, _I2C_IC_ENABLE__ENABLE)
+        self.RP2040_Write_32b_i2c_Reg(
+            _I2C_IC_ENABLE, _I2C_IC_ENABLE__ENABLE, MEM_SET)
 
         # Reset GPIO0 function
         sda_base = 4 + 8 * self.sda
@@ -153,47 +144,47 @@ class i2c_slave:
 
     def handle_event(self):
         # I2C Master has abort the transactions
-        if (self.RP2040_Get_32b_i2c_Bits(
-                _I2C_IC_INTR_STAT, _I2C_IC_INTR_STAT__R_TX_ABRT)):
+        if (self.RP2040_Read_32b_i2c_Reg(
+                _I2C_IC_INTR_STAT) & _I2C_IC_INTR_STAT__R_TX_ABRT):
             # Clear int
             self.RP2040_Read_32b_i2c_Reg(_I2C_IC_CLR_TX_ABRT)
             return i2c_slave.I2CStateMachine.I2C_FINISH
 
         # Last byte transmitted by I2C Slave but NACK from I2C Master
-        if (self.RP2040_Get_32b_i2c_Bits(
-                _I2C_IC_INTR_STAT, _I2C_IC_INTR_STAT__R_RX_DONE)):
+        if (self.RP2040_Read_32b_i2c_Reg(
+                _I2C_IC_INTR_STAT) & _I2C_IC_INTR_STAT__R_RX_DONE):
             # Clear int
             self.RP2040_Read_32b_i2c_Reg(_I2C_IC_CLR_RX_DONE)
             return i2c_slave.I2CStateMachine.I2C_FINISH
 
         # Restart condition detected
-        if (self.RP2040_Get_32b_i2c_Bits(
-                _I2C_IC_INTR_STAT, _I2C_IC_INTR_STAT__R_RESTART_DET)):
+        if (self.RP2040_Read_32b_i2c_Reg(
+                _I2C_IC_INTR_STAT) & _I2C_IC_INTR_STAT__R_RESTART_DET):
             # Clear int
             self.RP2040_Read_32b_i2c_Reg(_I2C_IC_CLR_RESTART_DET)
 
         # Start condition detected by I2C Slave
-        if (self.RP2040_Get_32b_i2c_Bits(
-                _I2C_IC_INTR_STAT, _I2C_IC_INTR_STAT__R_START_DET)):
+        if (self.RP2040_Read_32b_i2c_Reg(
+                _I2C_IC_INTR_STAT) & _I2C_IC_INTR_STAT__R_START_DET):
             # Clear start detection
             self.RP2040_Read_32b_i2c_Reg(_I2C_IC_CLR_START_DET)
             return i2c_slave.I2CStateMachine.I2C_START
 
         # Stop condition detected by I2C Slave
-        if (self.RP2040_Get_32b_i2c_Bits(
-                _I2C_IC_INTR_STAT, _I2C_IC_INTR_STAT__R_STOP_DET)):
+        if (self.RP2040_Read_32b_i2c_Reg(
+                _I2C_IC_INTR_STAT) & _I2C_IC_INTR_STAT__R_STOP_DET):
             # Clear stop detection
             self.RP2040_Read_32b_i2c_Reg(_I2C_IC_CLR_STOP_DET)
             return i2c_slave.I2CStateMachine.I2C_FINISH
 
         # Check if RX FIFO is not empty
-        if (self.RP2040_Get_32b_i2c_Bits(
-                _I2C_IC_STATUS, _I2C_IC_STATUS__RFNE)):
+        if (self.RP2040_Read_32b_i2c_Reg(
+                _I2C_IC_STATUS) & _I2C_IC_STATUS__RFNE):
             return i2c_slave.I2CStateMachine.I2C_RECEIVE
 
         # Check if Master is requesting data
-        if (self.RP2040_Get_32b_i2c_Bits(
-                _I2C_IC_INTR_STAT, _I2C_IC_INTR_STAT__R_RD_REQ)):
+        if (self.RP2040_Read_32b_i2c_Reg(
+                _I2C_IC_INTR_STAT) & _I2C_IC_INTR_STAT__R_RD_REQ):
             # Shall Wait until transfer is done, timing recommended
             # 10 * fastest SCL clock period:
             # for 100 Khz = (1/100E3) * 10 = 100 uS
@@ -203,9 +194,9 @@ class i2c_slave:
     def is_Master_Req_Read(self):
         """ Return status if I2C Master is requesting a read sequence """
         # Check RD_REQ Interrupt bit (master wants to read data from the slave)
-        status = self.RP2040_Get_32b_i2c_Bits(
-            _I2C_IC_RAW_INTR_STAT, _I2C_IC_RAW_INTR_STAT__RD_REQ)
-        return bool(status)
+        v = bool(self.RP2040_Read_32b_i2c_Reg(_I2C_IC_RAW_INTR_STAT) &
+                 _I2C_IC_RAW_INTR_STAT__RD_REQ)
+        return v
 
     def Slave_Write_Data(self, data):
         """ Write 8bits of data at destination of I2C Master """
@@ -220,8 +211,8 @@ class i2c_slave:
         """ Return true if data has been received from I2C Master """
 
         # Get RFNE Bit (Receive FIFO Not Empty)
-        return self.RP2040_Get_32b_i2c_Bits(
-            _I2C_IC_STATUS, _I2C_IC_STATUS__RFNE)
+        return bool(self.RP2040_Read_32b_i2c_Reg(
+            _I2C_IC_STATUS) & _I2C_IC_STATUS__RFNE)
 
     def Read_Data_Received(self):
         """ Return data from I2C Master """
