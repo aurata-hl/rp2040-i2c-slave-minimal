@@ -154,13 +154,22 @@ class i2c_slave:
         I2C_START = 3
 
     class I2CTransaction:
-        def __init__(self, address: int, data_byte: list):
-            self.address = address
-            self.data_byte = data_byte
+        def __init__(self, buffer, buffer_size: int):
+            if buffer is None:
+                self.buffer = bytearray(buffer_size)
+            else:
+                self.buffer = buffer
+            self.buffer_size = buffer_size
+            self.size = 0
+
+        def append(self, b: int):
+            if self.size >= self.buffer_size:
+                return False
+            self.buffer[self.size] = b
+            self.size += 1
 
         def reset(self):
-            self.address = 0x00
-            self.data_byte = []
+            self.size = 0
 
     def handle_event(self):
         # I2C Master has abort the transactions
