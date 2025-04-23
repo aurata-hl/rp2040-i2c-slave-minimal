@@ -103,13 +103,11 @@ class i2c_slave:
         """
 
         # 1. Disable the DW_apb_i2c by writing a ‘0’ to IC_ENABLE.ENABLE
-        self._reg_write(
-            _I2C_IC_ENABLE, _I2C_IC_ENABLE__ENABLE, _MEM_CLR)
+        self._reg_write(_I2C_IC_ENABLE, _I2C_IC_ENABLE__ENABLE, _MEM_CLR)
 
         # 2. Write to the IC_SAR register (bits 9:0) to set the slave address.
         # This is the address to which the DW_apb_i2c responds.
-        self._reg_write(
-            _I2C_IC_SAR, _I2C_IC_SAR__IC_SAR, _MEM_CLR)
+        self._reg_write(_I2C_IC_SAR, _I2C_IC_SAR__IC_SAR, _MEM_CLR)
 
         self._reg_write(
             _I2C_IC_SAR, self.slaveAddress & _I2C_IC_SAR__IC_SAR, _MEM_SET)
@@ -121,20 +119,17 @@ class i2c_slave:
         # (MASTER_MODE).
 
         # Disable Master mode
-        self._reg_write(
-            _I2C_IC_CON, _I2C_IC_CON__MASTER_MODE, _MEM_CLR)
+        self._reg_write(_I2C_IC_CON, _I2C_IC_CON__MASTER_MODE, _MEM_CLR)
 
         # Enable slave mode
-        self._reg_write(
-            _I2C_IC_CON, _I2C_IC_CON__IC_SLAVE_DISABLE, _MEM_CLR)
+        self._reg_write(_I2C_IC_CON, _I2C_IC_CON__IC_SLAVE_DISABLE, _MEM_CLR)
 
         # Enable clock strech
         self._reg_write(
             _I2C_IC_CON, _I2C_IC_CON__RX_FIFO_FULL_HLD_CTRL, _MEM_SET)
 
         # 4. Enable the DW_apb_i2c by writing a ‘1’ to IC_ENABLE.ENABLE.
-        self._reg_write(
-            _I2C_IC_ENABLE, _I2C_IC_ENABLE__ENABLE, _MEM_SET)
+        self._reg_write(_I2C_IC_ENABLE, _I2C_IC_ENABLE__ENABLE, _MEM_SET)
 
         # Reset GPIO0 function
         sda_base = 4 + 8 * self.sda
@@ -169,15 +164,13 @@ class i2c_slave:
 
     def handle_event(self):
         # I2C Master has abort the transactions
-        if (self._reg_read(
-                _I2C_IC_INTR_STAT) & _I2C_IC_INTR_STAT__R_TX_ABRT):
+        if (self._reg_read(_I2C_IC_INTR_STAT) & _I2C_IC_INTR_STAT__R_TX_ABRT):
             # Clear int
             self._reg_read(_I2C_IC_CLR_TX_ABRT)
             return i2c_slave.I2CStateMachine.I2C_FINISH
 
         # Last byte transmitted by I2C Slave but NACK from I2C Master
-        if (self._reg_read(
-                _I2C_IC_INTR_STAT) & _I2C_IC_INTR_STAT__R_RX_DONE):
+        if (self._reg_read(_I2C_IC_INTR_STAT) & _I2C_IC_INTR_STAT__R_RX_DONE):
             # Clear int
             self._reg_read(_I2C_IC_CLR_RX_DONE)
             return i2c_slave.I2CStateMachine.I2C_FINISH
@@ -196,20 +189,17 @@ class i2c_slave:
             return i2c_slave.I2CStateMachine.I2C_START
 
         # Stop condition detected by I2C Slave
-        if (self._reg_read(
-                _I2C_IC_INTR_STAT) & _I2C_IC_INTR_STAT__R_STOP_DET):
+        if (self._reg_read(_I2C_IC_INTR_STAT) & _I2C_IC_INTR_STAT__R_STOP_DET):
             # Clear stop detection
             self._reg_read(_I2C_IC_CLR_STOP_DET)
             return i2c_slave.I2CStateMachine.I2C_FINISH
 
         # Check if RX FIFO is not empty
-        if (self._reg_read(
-                _I2C_IC_STATUS) & _I2C_IC_STATUS__RFNE):
+        if (self._reg_read(_I2C_IC_STATUS) & _I2C_IC_STATUS__RFNE):
             return i2c_slave.I2CStateMachine.I2C_RECEIVE
 
         # Check if Master is requesting data
-        if (self._reg_read(
-                _I2C_IC_INTR_STAT) & _I2C_IC_INTR_STAT__R_RD_REQ):
+        if (self._reg_read(_I2C_IC_INTR_STAT) & _I2C_IC_INTR_STAT__R_RD_REQ):
             # Shall Wait until transfer is done, timing recommended
             # 10 * fastest SCL clock period:
             # for 100 Khz = (1/100E3) * 10 = 100 uS
@@ -224,22 +214,16 @@ class i2c_slave:
         return v
 
     def Slave_Write_Data(self, data):
-        """ Write 8bits of data at destination of I2C Master """
-
-        # Send data
-        self._reg_write(
-            _I2C_IC_DATA_CMD, data & _I2C_IC_DATA_CMD__DAT)
-
+        """ Write 8 its of data at destination of I2C Master """
+        self._reg_write(_I2C_IC_DATA_CMD, data & _I2C_IC_DATA_CMD__DAT)
         self._reg_read(_I2C_IC_CLR_RD_REQ)
 
     def Available(self):
         """ Return true if data has been received from I2C Master """
 
         # Get RFNE Bit (Receive FIFO Not Empty)
-        return bool(self._reg_read(
-            _I2C_IC_STATUS) & _I2C_IC_STATUS__RFNE)
+        return bool(self._reg_read(_I2C_IC_STATUS) & _I2C_IC_STATUS__RFNE)
 
     def Read_Data_Received(self):
         """ Return data from I2C Master """
-        return self._reg_read(
-            _I2C_IC_DATA_CMD) & _I2C_IC_DATA_CMD__DAT
+        return self._reg_read(_I2C_IC_DATA_CMD) & _I2C_IC_DATA_CMD__DAT
