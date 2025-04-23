@@ -172,33 +172,34 @@ class i2c_slave:
             self.size = 0
 
     def handle_event(self):
+        # Read the I2C_IC_INTR_STAT register just once.
+        intr_stat = self._reg_read(_I2C_IC_INTR_STAT)
+
         # I2C Master has abort the transactions
-        if (self._reg_read(_I2C_IC_INTR_STAT) & _I2C_IC_INTR_STAT__R_TX_ABRT):
+        if (intr_stat & _I2C_IC_INTR_STAT__R_TX_ABRT):
             # Clear int
             self._reg_read(_I2C_IC_CLR_TX_ABRT)
             return i2c_slave.I2CStateMachine.I2C_FINISH
 
         # Last byte transmitted by I2C Slave but NACK from I2C Master
-        if (self._reg_read(_I2C_IC_INTR_STAT) & _I2C_IC_INTR_STAT__R_RX_DONE):
+        if (intr_stat & _I2C_IC_INTR_STAT__R_RX_DONE):
             # Clear int
             self._reg_read(_I2C_IC_CLR_RX_DONE)
             return i2c_slave.I2CStateMachine.I2C_FINISH
 
         # Restart condition detected
-        if (self._reg_read(
-                _I2C_IC_INTR_STAT) & _I2C_IC_INTR_STAT__R_RESTART_DET):
+        if (intr_stat & _I2C_IC_INTR_STAT__R_RESTART_DET):
             # Clear int
             self._reg_read(_I2C_IC_CLR_RESTART_DET)
 
         # Start condition detected by I2C Slave
-        if (self._reg_read(
-                _I2C_IC_INTR_STAT) & _I2C_IC_INTR_STAT__R_START_DET):
+        if (intr_stat & _I2C_IC_INTR_STAT__R_START_DET):
             # Clear start detection
             self._reg_read(_I2C_IC_CLR_START_DET)
             return i2c_slave.I2CStateMachine.I2C_START
 
         # Stop condition detected by I2C Slave
-        if (self._reg_read(_I2C_IC_INTR_STAT) & _I2C_IC_INTR_STAT__R_STOP_DET):
+        if (intr_stat & _I2C_IC_INTR_STAT__R_STOP_DET):
             # Clear stop detection
             self._reg_read(_I2C_IC_CLR_STOP_DET)
             return i2c_slave.I2CStateMachine.I2C_FINISH
@@ -208,7 +209,7 @@ class i2c_slave:
             return i2c_slave.I2CStateMachine.I2C_RECEIVE
 
         # Check if Master is requesting data
-        if (self._reg_read(_I2C_IC_INTR_STAT) & _I2C_IC_INTR_STAT__R_RD_REQ):
+        if (intr_stat & _I2C_IC_INTR_STAT__R_RD_REQ):
             # Shall Wait until transfer is done, timing recommended
             # 10 * fastest SCL clock period:
             # for 100 Khz = (1/100E3) * 10 = 100 uS
