@@ -4,82 +4,6 @@ from machine import mem32
 from micropython import const
 
 
-# RP2040 I2C register base addresses
-_I2C0_BASE = const(0x40044000)
-_I2C1_BASE = const(0x40048000)
-_IO_BANK0_BASE = const(0x40014000)
-
-# RP2040 I2C register relative addresses
-_I2C_IC_CLR_RD_REQ = const(0x00000050)
-_I2C_IC_CLR_INTR = const(0x00000040)
-_I2C_IC_CON = const(0x00000000)
-_I2C_IC_DATA_CMD = const(0x00000010)
-_I2C_IC_ENABLE = const(0x0000006c)
-_I2C_IC_INTR_STAT = const(0x0000002c)
-_I2C_IC_INTR_MASK = const(0x00000030)
-_I2C_IC_RAW_INTR_STAT = const(0x00000034)
-_I2C_IC_SAR = const(0x00000008)
-_I2C_IC_STATUS = const(0x00000070)
-
-# RP2040 I2C register bitmasks
-_I2C_IC_CON__IC_SLAVE_DISABLE = const(0x00000040)
-_I2C_IC_CON__MASTER_MODE = const(0x00000001)
-_I2C_IC_CON__RX_FIFO_FULL_HLD_CTRL = const(0x00000200)
-_I2C_IC_DATA_CMD__DAT = const(0x000000ff)
-_I2C_IC_ENABLE__ENABLE = const(0x00000001)
-_I2C_IC_INTR_STAT__R_RD_REQ = const(0x00000020)
-_I2C_IC_INTR_STAT__R_RX_DONE = const(0x00000080)
-_I2C_IC_INTR_STAT__R_START_DET = const(0x00000400)
-_I2C_IC_INTR_STAT__R_STOP_DET = const(0x00000200)
-_I2C_IC_INTR_STAT__R_TX_ABRT = const(0x00000040)
-_I2C_IC_INTR_MASK__M_STOP_DET = const(0x00000200)
-_I2C_IC_SAR__IC_SAR = const(0x000003ff)
-_I2C_IC_STATUS__RFNE = const(0x00000008)
-
-# R_TX_ABRT, R_RX_DONE or R_STOP_DET
-_I2C_IC_INTR__TERMINAL = const(0x000002c0)
-
-
-# Atomic Register Access
-_MEM_RW = const(0x0000)  # Normal read/write access
-_MEM_XOR = const(0x1000)  # XOR on write
-_MEM_SET = const(0x2000)  # Bitmask set on write
-_MEM_CLR = const(0x3000)  # Bitmask clear on write
-
-
-# The register read/write functions should be simplified as much as possible,
-# since these functions are invoked most frequently, and hence contribute
-# a considerable amount of overhead.
-# Hence we use two sets of more compact functions, such that the runtime
-# overhead is minimized.
-#
-# _reg_write_xxx: Write, set or clear RP2040 I2C 32bits register `register`.
-# The "atomic read", `atr`, should be one of the predefined constants,
-# i.e., `_MEM_RW`, `_MEM_SET`, `_MEM_CLR` or `_MEM_XOR`.
-#
-# _reg_read_xxx: Read the contents of the 32-bit register at the
-# specified `offset`.
-
-def _reg_write_i2c0(register, data, atr=_MEM_RW):
-    # Write register for I2C0
-    mem32[_I2C0_BASE | atr | register] = data
-
-
-def _reg_write_i2c1(register, data, atr=_MEM_RW):
-    # Write register for I2C1
-    mem32[_I2C1_BASE | atr | register] = data
-
-
-def _reg_read_i2c0(offset):
-    # Read register for I2C0
-    return mem32[_I2C0_BASE | offset]
-
-
-def _reg_read_i2c1(offset):
-    # Read register for I2C1
-    return mem32[_I2C1_BASE | offset]
-
-
 # POLL_IDLE: The bus is idle, with nothing to be done by the slave.
 POLL_IDLE = const(0x00)
 
@@ -90,6 +14,11 @@ POLL_RECEIVE = const(0x01)
 # POLL_RESPOND: The master is initiating a read operation which should be
 # handled immediately.
 POLL_RESPOND = const(0x02)
+
+# Symbolic names for RP2040 I2C register bitmasks
+_I2C_IC_INTR_STAT__R_RD_REQ = const(0x00000020)
+_I2C_IC_STATUS__RFNE = const(0x00000008)
+_I2C_IC_INTR__TERMINAL = const(0x000002c0)  # R_TX_ABRT|R_RX_DONE|R_STOP_DET
 
 
 class I2C_Slave:
@@ -110,33 +39,67 @@ class I2C_Slave:
         `address` is the slave address.
         """
         # Expose the basic properties to the client
+        self.bus_id = bus_id
+        self.address = address
         self.scl = scl
         self.sda = sda
-        self.address = address
 
-        # Use pre-defined callables to simplify the (frequently executed)
-        # I2C-register read and write functions
-        self.bus_id = bus_id
-        if self.bus_id == 0:
-            self._reg_write = _reg_write_i2c0
-            self._reg_read = _reg_read_i2c0
+        # See the RP2040 datasheet,
+        #   https://datasheets.raspberrypi.com/rp2040/rp2040-datasheet.pdf
+        # for documentation on RP2040 I2C registers.
+
+        # Pre-calculate and cache all register addresses used in
+        # later handler methods (`poll`, `do_receive`, `do_respond`).
+        # Due to the _size_ of the valuees, these are _not_ "small integers"
+        # and will hence result in dynamic memory allocation if not
+        # pre-calculated.
+        if bus_id == 0:
+            _I2C0_BASE = const(0x40044000)
+            _I2C_BASE = _I2C0_BASE
+            self._I2C_IC_CLR_INTR = const(_I2C0_BASE | 0x40)
+            self._I2C_IC_CLR_RD_REQ = const(_I2C0_BASE | 0x50)
+            self._I2C_IC_DATA_CMD = const(_I2C0_BASE | 0x10)
+            self._I2C_IC_INTR_STAT = const(_I2C0_BASE | 0x2c)
+            self._I2C_IC_RAW_INTR_STAT = const(_I2C0_BASE | 0x34)
+            self._I2C_IC_STATUS = const(_I2C0_BASE | 0x70)
         else:
-            self._reg_write = _reg_write_i2c1
-            self._reg_read = _reg_read_i2c1
+            _I2C1_BASE = const(0x40048000)
+            _I2C_BASE = _I2C1_BASE
+            self._I2C_IC_CLR_INTR = const(_I2C1_BASE | 0x40)
+            self._I2C_IC_CLR_RD_REQ = const(_I2C1_BASE | 0x50)
+            self._I2C_IC_DATA_CMD = const(_I2C1_BASE | 0x10)
+            self._I2C_IC_INTR_STAT = const(_I2C1_BASE | 0x2c)
+            self._I2C_IC_RAW_INTR_STAT = const(_I2C1_BASE | 0x34)
+            self._I2C_IC_STATUS = const(_I2C1_BASE | 0x70)
 
-        """
-          I2C Slave Mode Intructions
-          https://datasheets.raspberrypi.com/rp2040/rp2040-datasheet.pdf
-        """
+        # The following setup is done only during initialization,
+        # hence the use of heap from this code is acceptable.
+
+        # Atomic register access modes
+        _MEM_RW = const(0x0000)  # Normal read/write access
+        #  _MEM_XOR = const(0x1000)  # XOR on write
+        _MEM_SET = const(0x2000)  # Bitmask set on write
+        _MEM_CLR = const(0x3000)  # Bitmask clear on write
+
+        # Auxiliary.
+        def _reg_write(register: int, data: int, atr=_MEM_RW):
+            mem32[_I2C_BASE | atr | register] = data
+
+        # Auxiliary.
+        def _reg_read(register: int):
+            return mem32[_I2C_BASE | register]
 
         # 1. Disable the DW_apb_i2c by writing a ‘0’ to IC_ENABLE.ENABLE
-        self._reg_write(_I2C_IC_ENABLE, _I2C_IC_ENABLE__ENABLE, _MEM_CLR)
+        _I2C_IC_ENABLE = const(0x0000006c)
+        _I2C_IC_ENABLE__ENABLE = const(0x00000001)
+        _reg_write(_I2C_IC_ENABLE, _I2C_IC_ENABLE__ENABLE, _MEM_CLR)
 
         # 2. Write to the IC_SAR register (bits 9:0) to set the slave address.
         # This is the address to which the DW_apb_i2c responds.
-        self._reg_write(_I2C_IC_SAR, _I2C_IC_SAR__IC_SAR, _MEM_CLR)
-
-        self._reg_write(
+        _I2C_IC_SAR = const(0x00000008)
+        _I2C_IC_SAR__IC_SAR = const(0x000003ff)
+        _reg_write(_I2C_IC_SAR, _I2C_IC_SAR__IC_SAR, _MEM_CLR)
+        _reg_write(
             _I2C_IC_SAR, self.address & _I2C_IC_SAR__IC_SAR, _MEM_SET)
 
         # 3. Write to the IC_CON register to specify which type of addressing
@@ -144,25 +107,32 @@ class I2C_Slave:
         # Enable the DW_apb_i2c in slave-only mode by writing a ‘0’ into
         # bit six (IC_SLAVE_DISABLE) and a ‘0’ to bit zero
         # (MASTER_MODE).
+        _I2C_IC_CON = const(0x00000000)
 
         # Disable Master mode
-        self._reg_write(_I2C_IC_CON, _I2C_IC_CON__MASTER_MODE, _MEM_CLR)
+        _I2C_IC_CON__MASTER_MODE = const(0x00000001)
+        _reg_write(_I2C_IC_CON, _I2C_IC_CON__MASTER_MODE, _MEM_CLR)
 
         # Enable slave mode
-        self._reg_write(_I2C_IC_CON, _I2C_IC_CON__IC_SLAVE_DISABLE, _MEM_CLR)
+        _I2C_IC_CON__IC_SLAVE_DISABLE = const(0x00000040)
+        _reg_write(_I2C_IC_CON, _I2C_IC_CON__IC_SLAVE_DISABLE, _MEM_CLR)
 
-        # Enable clock strech
-        self._reg_write(
+        # Enable clock stretching
+        _I2C_IC_CON__RX_FIFO_FULL_HLD_CTRL = const(0x00000200)
+        _reg_write(
             _I2C_IC_CON, _I2C_IC_CON__RX_FIFO_FULL_HLD_CTRL, _MEM_SET)
 
         # Enable stop-condition detection
-        self._reg_write(
+        _I2C_IC_INTR_MASK = const(0x00000030)
+        _I2C_IC_INTR_MASK__M_STOP_DET = const(0x00000200)
+        _reg_write(
             _I2C_IC_INTR_MASK, _I2C_IC_INTR_MASK__M_STOP_DET, _MEM_SET)
 
         # 4. Enable the DW_apb_i2c by writing a ‘1’ to IC_ENABLE.ENABLE.
-        self._reg_write(_I2C_IC_ENABLE, _I2C_IC_ENABLE__ENABLE, _MEM_SET)
+        _reg_write(_I2C_IC_ENABLE, _I2C_IC_ENABLE__ENABLE, _MEM_SET)
 
         # Reset GPIO0 function
+        _IO_BANK0_BASE = const(0x40014000)
         sda_base = 4 + 8 * self.sda
         mem32[_IO_BANK0_BASE | _MEM_CLR | sda_base] = 0x1f
         # Set GPIO0 as IC0_SDA function
@@ -179,7 +149,7 @@ class I2C_Slave:
 
     def _clear_interrupts(self):
         """Clear all latched I2C interrupts."""
-        self._reg_read(_I2C_IC_CLR_INTR)
+        return mem32[self._I2C_IC_CLR_INTR]
 
     def poll(self):
         """
@@ -197,7 +167,7 @@ class I2C_Slave:
         response.
         """
         # Read the I2C_IC_INTR_STAT register just once.
-        intr_stat = self._reg_read(_I2C_IC_INTR_STAT)
+        intr_stat = mem32[self._I2C_IC_INTR_STAT]
 
         if (intr_stat & _I2C_IC_INTR__TERMINAL):
             # Just clear up and return idle if a terminal state (e.g. for a
@@ -215,7 +185,7 @@ class I2C_Slave:
 
         # Check whether a write has been initiated by the master, and at least
         # one byte has been stored in the FIFO.
-        if (self._reg_read(_I2C_IC_STATUS) & _I2C_IC_STATUS__RFNE):
+        if (mem32[self._I2C_IC_STATUS] & _I2C_IC_STATUS__RFNE):
             return POLL_RECEIVE
 
         # No significant event.
@@ -223,12 +193,12 @@ class I2C_Slave:
 
     def do_respond(
             self,
-            generator,
+            iterator,
             fallback=0x00) -> int:
         """
         After a `POLL_RESPOND` this method should be invoked to provide the
         master with the requested data.
-        Data will be taken from the `generator`. If the sequence runs out,
+        Data will be taken from the `iterator`. If the sequence runs out,
         the `fallback` value will be sent instead until the master stops
         requesting data.
         """
@@ -240,19 +210,19 @@ class I2C_Slave:
             # Get the next value
             if in_range:
                 try:
-                    value = next(generator)
+                    value = next(iterator)
                 except StopIteration:
                     in_range = False
                     value = fallback
 
             # Transmit the value, and clear the RD_REQ interrupt
-            self._reg_write(_I2C_IC_DATA_CMD, value & _I2C_IC_DATA_CMD__DAT)
-            self._reg_read(_I2C_IC_CLR_RD_REQ)
+            mem32[self._I2C_IC_DATA_CMD] = value & const(0xFF)
+            _ = mem32[self._I2C_IC_CLR_RD_REQ]
             n_bytes += 1
 
             while True:
                 # Check the status
-                status = self._reg_read(_I2C_IC_RAW_INTR_STAT)
+                status = mem32[self._I2C_IC_RAW_INTR_STAT]
                 if status & _I2C_IC_INTR_STAT__R_RD_REQ:
                     # Master requests more data; continue the outer loop
                     break
@@ -281,8 +251,7 @@ class I2C_Slave:
         # for POLL_RECEIVE), hence we start the loop with a read.
         while True:
             # Read the next byte
-            next_byte = self._reg_read(
-                _I2C_IC_DATA_CMD) & _I2C_IC_DATA_CMD__DAT
+            next_byte = mem32[self._I2C_IC_DATA_CMD] & const(0xFF)
             received += 1
 
             # Store the received byte, if there's still space
@@ -293,21 +262,20 @@ class I2C_Slave:
             n_polls = 0
             while True:
                 # Check whether queued data is available
-                available = self._reg_read(
-                    _I2C_IC_STATUS) & _I2C_IC_STATUS__RFNE
+                available = mem32[self._I2C_IC_STATUS] & _I2C_IC_STATUS__RFNE
                 if available:
                     # Continue the outer loop
                     break
 
-                # The stop condition may be detected before the last 1-2 bytes
-                # have detected with _I2C_IC_STATUS__RFNE, hence we need this
+                # The stop condition may be flagged before the last 1-2 bytes
+                # are detected with _I2C_IC_STATUS__RFNE, hence we need this
                 # ugly heuristic:
                 n_polls += 1
                 if n_polls < 3:
                     continue
 
                 # Stop when no more data available and the transfer is finished
-                status = self._reg_read(_I2C_IC_INTR_STAT)
+                status = mem32[self._I2C_IC_INTR_STAT]
                 if (status & _I2C_IC_INTR__TERMINAL):
                     self._clear_interrupts()
                     return received
