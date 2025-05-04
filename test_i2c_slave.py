@@ -1,59 +1,24 @@
-def test_slave(addr, bus=0, sda=0, scl=1):
-    """
-    Example code demonstrating the use of RP2040_Slave.
-    It creates a simple slave on the specified `addr` and
-    RP2040 `bus`, using the GPIO pins `sda` and `scl`.
-    """
-    from RP2040_Slave import i2c_slave
+import rp2040_i2c_slave
 
-    # Initialize an empty buffer list for sequential write sequences
 
-    data_buf = []
-    s_i2c = i2c_slave(bus, sda=sda, scl=scl, slaveAddress=addr)
-    state = s_i2c.I2CStateMachine.I2C_START
-    currentTransaction = s_i2c.I2CTransaction(addr, data_buf)
-    counter = 0
+def test_slave(addr: int, bus=0, sda=0, scl=1):
+    # Instantiate the slave
+    s_i2c = rp2040_i2c_slave.I2C_Slave(bus, sda=sda, scl=scl, address=addr)
 
-    print(f"I2C Slave test, address {addr:02x}, bus {bus}, pins {sda}:{scl}")
-    try:
-        while True:
-            state = s_i2c.handle_event()
+    # Implement an I2C-attached memory of 256 bytes
+    MEM_SIZE = 256
+    data_buf = bytearray(MEM_SIZE)
 
-            if state is None:
-                continue
+    while True:
+        # Check the bus state
+        state = s_i2c.poll()
 
-            if state == s_i2c.I2CStateMachine.I2C_START:
-                continue
-
-            if state == s_i2c.I2CStateMachine.I2C_RECEIVE:
-                if currentTransaction.address == 0x00:
-                    # First byte received is the register address
-                    currentTransaction.address = s_i2c.Read_Data_Received()
-
-                # Read all data byte received until RX FIFO is empty
-                while (s_i2c.Available()):
-                    currentTransaction.data_byte.append(
-                        s_i2c.Read_Data_Received())
-                    # Virtually Increase register address
-                    # s_i2c.I2CTransaction.address += 1
-
-            if state == s_i2c.I2CStateMachine.I2C_REQUEST:
-                # Send some dummy data back
-                while (s_i2c.is_Master_Req_Read()):
-                    counter += 1
-                    s_i2c.Slave_Write_Data(counter)
-
-                    # Virtually Increase register address
-                    # s_i2c.I2CTransaction.address += 1
-                    print("Sending data : ", counter)
-
-            if state == s_i2c.I2CStateMachine.I2C_FINISH:
-                print(
-                    "Register : ", currentTransaction.address,
-                    "Received : ", currentTransaction.data_byte)
-
-                currentTransaction.address = 0x00
-                currentTransaction.data_byte = []
-
-    except KeyboardInterrupt:
-        pass
+        if state == rp2040_i2c_slave.POLL_RECEIVE:
+            # Master has initiated a write; store the data in memory.
+            _ = s_i2c.do_receive(data_buf, 0, MEM_SIZE)
+        elif state == rp2040_i2c_slave.POLL_RESPOND:
+            # Master has initiated a read; produce the stored data back,
+            # (extending with '-1' if more data is requested than
+            # previously written)
+            s_i2c.do_respond(iter(data_buf[0:MEM_SIZE]), -1)
+        # Some real work could be done here when the bus is idle.
