@@ -84,11 +84,11 @@ class I2C_Slave:
         _MEM_CLR = const(0x3000)  # Bitmask clear on write
 
         # Auxiliary.
-        def _reg_write(register: int, data: int, atr=_MEM_RW):
+        def _reg_write(register: int, data: int, atr: int = _MEM_RW) -> None:
             mem32[_I2C_BASE | atr | register] = data
 
         # Auxiliary.
-        def _reg_read(register: int):
+        def _reg_read(register: int) -> int:
             return mem32[_I2C_BASE | register]
 
         # 1. Disable the DW_apb_i2c by writing a ‘0’ to IC_ENABLE.ENABLE
@@ -149,11 +149,11 @@ class I2C_Slave:
         # Clear all interrupts
         self._clear_interrupts()
 
-    def _clear_interrupts(self):
+    def _clear_interrupts(self) -> int:
         """Clear all latched I2C interrupts."""
         return mem32[self._I2C_IC_CLR_INTR]
 
-    def poll(self):
+    def poll(self) -> int:
         """
         Poll for an I2C event: `POLL_IDLE`, `POLL_RECEIVE` or `POLL_RESPOND`.
 
@@ -195,7 +195,7 @@ class I2C_Slave:
 
     def do_respond(
             self,
-            iterator,
+            iterator,  # typing: ignore[no-untyped-def]
             fallback=0x00) -> int:
         """
         After a `POLL_RESPOND` this method should be invoked to provide the
@@ -235,7 +235,7 @@ class I2C_Slave:
 
     def do_receive(
             self,
-            buffer,
+            buffer,  # typing: ignore[no-untyped-def]
             index: int,
             max_bytes=0x7FFFFFFF) -> int:
         """
