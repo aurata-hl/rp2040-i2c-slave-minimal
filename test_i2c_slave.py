@@ -1,9 +1,9 @@
 import rp2040_i2c_slave
 
 
-def test_slave(addr: int, bus=0, sda=0, scl=1):
+def test_slave(addr: int, sda=0, scl=1):
     # Instantiate the slave
-    s_i2c = rp2040_i2c_slave.I2C_Slave(bus, sda=sda, scl=scl, address=addr)
+    s_i2c = rp2040_i2c_slave.I2C_Slave(sda=sda, scl=scl, address=addr)
 
     # Implement an I2C-attached memory of 256 bytes
     MEM_SIZE = 256

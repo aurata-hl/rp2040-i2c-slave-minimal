@@ -30,14 +30,16 @@ class I2C_Slave:
     RAM usage.
     """
 
-    def __init__(self, bus_id=0, sda=0, scl=1, address=0x44):
+    def __init__(self, sda: int, scl: int, address: int):
         """
         Constructor.
-        `bus_id` is the RP204 I2C bus function (0 or 1).
         `sda` is the GPIO number of the pin used for the SDA signal.
         `scl` is the GPIO number of the pin used for SCL signal.
-        `address` is the slave address.
+        `address` is the (unshifted) slave address.
         """
+        # Determine which I2C bus to use, from the choice of `sda`.
+        bus_id = 0 if (sda % 4) == 0 else 1
+
         # Expose the basic properties to the client
         self.bus_id = bus_id
         self.address = address
