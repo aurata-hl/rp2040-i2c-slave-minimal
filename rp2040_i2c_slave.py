@@ -196,7 +196,7 @@ class I2C_Slave:
     def do_respond(
             self,
             iterator,  # typing: ignore[no-untyped-def]
-            fallback=0x00) -> int:
+            fallback: int = 0x00) -> int:
         """
         After a `POLL_RESPOND` this method should be invoked to provide the
         master with the requested data.
@@ -237,7 +237,7 @@ class I2C_Slave:
             self,
             buffer,  # typing: ignore[no-untyped-def]
             index: int,
-            max_bytes=0x7FFFFFFF) -> int:
+            max_bytes: int = 0x7FFFFFFF) -> int:
         """
         After a `POLL_RECEIVE` this method should be used to retrieve the
         data written by the master.
